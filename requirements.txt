@@ -1,3 +1,4 @@
+pip==25.2
 streamlit==1.37.0
 torch==2.3.1
 torchvision==0.18.1
@@ -9,3 +10,8 @@ pandas==2.2.2
 numpy==1.26.4
 captum==0.7.0
 pytorch-grad-cam==1.5.0
+rich==13.7.1
+pygments==2.18.0
+markdown-it-py==3.0.0
+mdurl==0.1.2
+
