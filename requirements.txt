@@ -9,5 +9,5 @@ plotly
 panda
 numpy
 captum
-pytorch-grad-cam
+pytorch-grad-cam==1.5.0
 rich
