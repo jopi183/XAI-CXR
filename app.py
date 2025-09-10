@@ -12,10 +12,10 @@ import io
 import plotly.express as px
 import pandas as pd
 import os 
-
 from captum.attr import Saliency, IntegratedGradients
 from pytorch_grad_cam import GradCAM, ScoreCAM
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+from model import EfficientNetClassifier
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -111,19 +111,29 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-class EfficientNetClassifier(nn.Module):
-    def __init__(self, num_classes=6):
-        super(EfficientNetClassifier, self).__init__()
-        self.efficientnet = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
+@st.cache_resource
+def load_cached_model(model_path, device):
+    try:
+        if not os.path.exists(model_path):
+            st.error(f"File model tidak ditemukan: {model_path}")
+            return None, None
         
-        in_features = self.efficientnet.classifier[1].in_features
-        self.efficientnet.classifier = nn.Sequential(
-            nn.Dropout(p=0.2),
-            nn.Linear(in_features, num_classes)
-        )
-    
-    def forward(self, x):
-        return self.efficientnet(x)
+        checkpoint = torch.load(model_path, map_location=device)
+        class_names = checkpoint.get('class_names')
+        num_classes = checkpoint.get('num_classes')
+
+        if num_classes is None:
+            st.error("Checkpoint tidak berisi 'num_classes'.")
+            return None, None
+
+        model = EfficientNetClassifier(num_classes=num_classes).to(device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model.eval()
+        
+        return model, class_names
+    except Exception as e:
+        st.error(f"Gagal memuat model: {e}")
+        return None, None
 
 class ImageProcessor:
     def __init__(self):
@@ -153,33 +163,18 @@ class ImageProcessor:
         return self.denormalize(tensor)
 
 class ModelLoader:
-    def __init__(self):
+    def __init__(self, model_path):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = None
-        self.class_names = None
-    
-    @st.cache_resource
-    def load_model(_self, model_path):
-        try:
-            if not os.path.exists(model_path):
-                return False, f"File model tidak ditemukan di path: {model_path}"
-                
-            checkpoint = torch.load(model_path, map_location=_self.device)
-            
-            num_classes = checkpoint['num_classes']
-            _self.class_names = checkpoint['class_names']
-            
-            _self.model = EfficientNetClassifier(num_classes=num_classes).to(_self.device)
-            _self.model.load_state_dict(checkpoint['model_state_dict'])
-            _self.model.eval()
-            
-            return True, "Model berhasil dimuat!"
-        except Exception as e:
-            return False, f"Error saat memuat model: {str(e)}"
-    
+        # Panggil fungsi cache saat inisialisasi
+        self.model, self.class_names = load_cached_model(model_path, self.device)
+
+    def is_ready(self):
+        """Memeriksa apakah model berhasil dimuat."""
+        return self.model is not None
+
     def predict(self, input_tensor):
-        if self.model is None:
-            raise ValueError("Model belum dimuat!")
+        if not self.is_ready():
+            raise ValueError("Model belum dimuat atau gagal dimuat!")
         
         input_tensor = input_tensor.to(self.device)
         
@@ -346,7 +341,10 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    MODEL_PATH = "efficientnet_b0_classifier.pth" 
+    from pathlib import Path
+
+    APP_DIR = Path(__file__).resolve().parent
+    MODEL_PATH = APP_DIR / "efficientnet_b0_classifier.pth"
 
     if 'model_loaded' not in st.session_state:
         st.session_state.model_loaded = False
@@ -367,7 +365,6 @@ def main():
                     st.session_state.model_loader.device
                 )
                 st.success(message)
-                st.balloons()
             except Exception as xai_error:
                 st.error(f"❌ Failed to initialize XAI visualizer: {str(xai_error)}")
                 st.session_state.model_loaded = False
