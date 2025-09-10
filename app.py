@@ -90,7 +90,6 @@ st.markdown("""
         margin-bottom: 0.5rem; text-align: center;
     }
     
-    
     .prediction-container {
         background: linear-gradient(135deg, #74b9ff, #0984e3);
         padding: 1.5rem; border-radius: 12px;
@@ -170,7 +169,7 @@ class ModelLoader:
 
     def is_ready(self):
         """Memeriksa apakah model berhasil dimuat."""
-        return self.model is not None
+        return self.model is not None and self.class_names is not None
 
     def predict(self, input_tensor):
         if not self.is_ready():
@@ -354,22 +353,24 @@ def main():
     if 'model_loader' not in st.session_state:
         with st.spinner("Memuat model AI, harap tunggu..."):
             st.session_state.model_loader = ModelLoader(MODEL_PATH)
+            st.success("✅ Model berhasil dimuat!")
 
     # Check if the model is ready to use
     if st.session_state.model_loader.is_ready():
         # Initialize the XAI visualizer now that the model is confirmed to be loaded
         if 'xai_visualizer' not in st.session_state:
             try:
-                st.session_state.xai_visualizer = XAIVisualizer(
-                    st.session_state.model_loader.model,
-                    st.session_state.model_loader.device
-                )
+                with st.spinner("Menginisialisasi XAI visualizer..."):
+                    st.session_state.xai_visualizer = XAIVisualizer(
+                        st.session_state.model_loader.model,
+                        st.session_state.model_loader.device
+                    )
+                    st.success("✅ XAI visualizer berhasil diinisialisasi!")
             except Exception as e:
                 st.error(f"Gagal menginisialisasi XAI: {e}")
                 st.stop()
 
-        # ALL APPLICATION LOGIC SHOULD BE NESTED HERE
-        
+        # MAIN APPLICATION LOGIC
         st.markdown("""
         <div class="info-card">
             <h3>📸 Upload Gambar Chest X-ray</h3>
@@ -382,15 +383,98 @@ def main():
         )
         
         if uploaded_file is not None:
-            # All the code for processing, predicting, and displaying results goes here
-            original_image = Image.open(uploaded_file)
-            input_tensor, original_array = st.session_state.image_processor.preprocess_image(original_image)
-            predicted_class, probabilities = st.session_state.model_loader.predict(input_tensor)
-            # ...and so on for the rest of your app's functionality...
-
+            try:
+                # Process the uploaded image
+                with st.spinner("Memproses gambar..."):
+                    original_image = Image.open(uploaded_file)
+                    input_tensor, original_array = st.session_state.image_processor.preprocess_image(original_image)
+                
+                # Make prediction
+                with st.spinner("Melakukan prediksi..."):
+                    predicted_class, probabilities = st.session_state.model_loader.predict(input_tensor)
+                    predicted_class_name = st.session_state.model_loader.class_names[predicted_class]
+                    confidence = probabilities[predicted_class] * 100
+                
+                # Display results
+                st.markdown("""
+                <div class="results-container">
+                    <h2>📊 Hasil Prediksi</h2>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Display prediction
+                st.markdown(f"""
+                <div class="prediction-container">
+                    <div class="prediction-class">Prediksi: {predicted_class_name}</div>
+                    <div class="prediction-confidence">Tingkat Kepercayaan: {confidence:.2f}%</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Display original image
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.image(original_image, caption="Gambar yang diunggah", use_container_width=True)
+                
+                with col2:
+                    # Display probability chart
+                    fig = create_prediction_chart(probabilities, st.session_state.model_loader.class_names)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # XAI Visualizations
+                st.markdown("""
+                <div class="results-container">
+                    <h2>🧠 Explainable AI (XAI) Analysis</h2>
+                    <p>Visualisasi berikut menunjukkan bagian mana dari gambar yang paling berpengaruh dalam keputusan model:</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Generate and display XAI visualizations
+                with st.spinner("Menghasilkan visualisasi XAI..."):
+                    # Saliency Map
+                    st.markdown("### 1. Saliency Map")
+                    saliency_attr = st.session_state.xai_visualizer.generate_saliency_map(
+                        input_tensor, predicted_class
+                    )
+                    display_xai_visualization(
+                        original_array, saliency_attr, "Saliency Map", method_type='gradient'
+                    )
+                    
+                    # Integrated Gradients
+                    st.markdown("### 2. Integrated Gradients")
+                    ig_attr = st.session_state.xai_visualizer.generate_integrated_gradients(
+                        input_tensor, predicted_class
+                    )
+                    display_xai_visualization(
+                        original_array, ig_attr, "Integrated Gradients", method_type='gradient'
+                    )
+                    
+                    # GradCAM
+                    st.markdown("### 3. Grad-CAM")
+                    gradcam_attr = st.session_state.xai_visualizer.generate_grad_cam(
+                        input_tensor, predicted_class
+                    )
+                    display_xai_visualization(
+                        original_array, gradcam_attr, "Grad-CAM", method_type='heatmap'
+                    )
+                    
+                    # ScoreCAM
+                    st.markdown("### 4. Score-CAM")
+                    scorecam_attr = st.session_state.xai_visualizer.generate_score_cam(
+                        input_tensor, predicted_class
+                    )
+                    display_xai_visualization(
+                        original_array, scorecam_attr, "Score-CAM", method_type='heatmap'
+                    )
+                
+                st.success("✅ Analisis XAI selesai!")
+                
+            except Exception as e:
+                st.error(f"Terjadi kesalahan saat memproses gambar: {str(e)}")
+                st.error("Silakan coba lagi dengan gambar yang berbeda.")
     else:
         # If the model is not ready, display an error and stop the app
-        st.error(f"Gagal memuat model. Pastikan file '{MODEL_PATH}' ada dan tidak rusak.")
+        st.error(f"❌ Gagal memuat model. Pastikan file '{MODEL_PATH}' ada dan tidak rusak.")
+        st.info("Pastikan file model 'efficientnet_b0_classifier.pth' tersedia di direktori aplikasi.")
         st.stop()
 
 if __name__ == "__main__":
