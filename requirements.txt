@@ -10,4 +10,3 @@ numpy
 captum
 grad-cam
 rich
-libgl1-mesa-glx
