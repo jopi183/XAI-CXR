@@ -346,31 +346,28 @@ def main():
     APP_DIR = Path(__file__).resolve().parent
     MODEL_PATH = APP_DIR / "efficientnet_b0_classifier.pth"
 
-    if 'model_loaded' not in st.session_state:
-        st.session_state.model_loaded = False
-    if 'model_loader' not in st.session_state:
-        st.session_state.model_loader = ModelLoader()
+        # Inisialisasi object di session state (jika belum ada)
     if 'image_processor' not in st.session_state:
         st.session_state.image_processor = ImageProcessor()
+    
+    # Inisialisasi loader (akan otomatis memanggil fungsi cache)
+    if 'model_loader' not in st.session_state:
+        with st.spinner("Memuat model AI, harap tunggu..."):
+            st.session_state.model_loader = ModelLoader(MODEL_PATH) # <-- PERBAIKAN: Berikan MODEL_PATH
 
-    if not st.session_state.model_loaded:
-        with st.spinner(f"Memuat model '{MODEL_PATH}', harap tunggu..."):
-            success, message = st.session_state.model_loader.load_model(MODEL_PATH)
-        
-        if success:
-            st.session_state.model_loaded = True
+    # Cek apakah model siap digunakan
+    if st.session_state.model_loader.is_ready():
+        # Inisialisasi XAI visualizer setelah model siap
+        if 'xai_visualizer' not in st.session_state:
             try:
                 st.session_state.xai_visualizer = XAIVisualizer(
                     st.session_state.model_loader.model,
                     st.session_state.model_loader.device
                 )
-                st.success(message)
-            except Exception as xai_error:
-                st.error(f"❌ Failed to initialize XAI visualizer: {str(xai_error)}")
-                st.session_state.model_loaded = False
-        else:
-            st.error(f"Gagal memuat model. Pastikan file '{MODEL_PATH}' ada di direktori yang sama dengan skrip ini. Detail Error: {message}")
-    
+            except Exception as e:
+                st.error(f"Gagal menginisialisasi XAI: {e}")
+                st.stop()
+
     if st.session_state.model_loaded:
         st.markdown("""
         <div class="info-card">
