@@ -47,13 +47,18 @@ def debug_print(message):
         st.write(f"🐛 DEBUG: {message}")
 
 def get_memory_usage():
-    """Get current memory usage"""
+    """Get current memory usage - simplified version without psutil"""
     try:
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
-        return memory_info.rss / 1024 / 1024  # MB
-    except:
-        return 0
+        # Alternative method without psutil
+        import resource
+        memory_usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # Convert to MB (different units on different systems)
+        if os.name == 'posix':
+            return memory_usage / 1024  # KB to MB on Unix
+        else:
+            return memory_usage / (1024 * 1024)  # Bytes to MB on Windows
+    except Exception:
+        return 0  # Return 0 if unable to get memory info
 
 def cleanup_memory():
     """Force garbage collection and clear CUDA cache"""
