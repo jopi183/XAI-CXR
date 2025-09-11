@@ -90,6 +90,19 @@ st.markdown("""
         margin-bottom: 0.5rem; text-align: center;
     }
     
+    .xai-selection-container {
+        background: linear-gradient(145deg, #f8f9ff, #ffffff);
+        padding: 1.5rem; border-radius: 12px;
+        border: 2px solid #667eea; margin-bottom: 2rem;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.1);
+    }
+    
+    .xai-description {
+        background: #f8f9fa; padding: 1rem; border-radius: 8px;
+        margin-top: 1rem; border-left: 4px solid #667eea;
+        font-size: 0.95rem; color: #495057;
+    }
+    
     .prediction-container {
         background: linear-gradient(135deg, #74b9ff, #0984e3);
         padding: 1.5rem; border-radius: 12px;
@@ -102,6 +115,34 @@ st.markdown("""
     
     .prediction-confidence {
         font-size: 1rem; opacity: 0.9;
+    }
+    
+    .stRadio > div {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    
+    .stRadio > div > label {
+        background: white;
+        padding: 0.75rem 1.25rem;
+        border-radius: 8px;
+        border: 2px solid #e1e8ed;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-weight: 500;
+    }
+    
+    .stRadio > div > label:hover {
+        border-color: #667eea;
+        background: #f8f9ff;
+        transform: translateY(-1px);
+    }
+    
+    .stRadio > div > label[data-checked="true"] {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        border-color: #667eea;
     }
     
     #MainMenu {visibility: hidden;}
@@ -301,19 +342,23 @@ def display_xai_visualization(original_image, attribution, title, method_type='h
     with col1:
         st.markdown(f"""
         <div class="xai-card">
-            <div class="xai-title">{title}</div>
+            <div class="xai-title">Gambar Asli</div>
         </div>
         """, unsafe_allow_html=True)
-        st.image(original_image, caption="Gambar Asli", use_container_width=True)
+        st.image(original_image, caption="Original Image", use_container_width=True)
     
     with col2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div class="xai-card">
+            <div class="xai-title">{title} Visualization</div>
+        </div>
+        """, unsafe_allow_html=True)
         
         try:
             if method_type == 'heatmap':
                 visualizer = st.session_state.xai_visualizer
                 overlay = visualizer.create_heatmap_overlay(original_image, attribution)
-                st.image(overlay, caption=f"{title} Visualization", use_container_width=True)
+                st.image(overlay, caption=f"{title} Overlay", use_container_width=True)
             else:
                 attribution_normalized = np.transpose(attribution, (1, 2, 0))
                 attribution_gray = np.mean(np.abs(attribution_normalized), axis=2)
@@ -331,6 +376,15 @@ def display_xai_visualization(original_image, attribution, title, method_type='h
                 plt.close()
         except Exception as e:
             st.error(f"Error dalam visualisasi {title}: {str(e)}")
+
+def get_xai_description(method):
+    descriptions = {
+        "Saliency Map": "Menunjukkan piksel mana yang paling berkontribusi terhadap prediksi dengan menghitung gradien dari output terhadap input.",
+        "Integrated Gradients": "Metode yang lebih robust dengan mengintegrasikan gradien sepanjang jalur dari baseline ke input untuk mengurangi noise.",
+        "Grad-CAM": "Menggunakan gradien dari layer konvolusi terakhir untuk menghasilkan heatmap lokalisasi yang kasar namun spesifik kelas.",
+        "Score-CAM": "Menggunakan forward pass untuk menghasilkan heatmap tanpa bergantung pada gradien, memberikan visualisasi yang lebih stabil."
+    }
+    return descriptions.get(method, "")
 
 def main():
     st.markdown("""
@@ -420,53 +474,80 @@ def main():
                     fig = create_prediction_chart(probabilities, st.session_state.model_loader.class_names)
                     st.plotly_chart(fig, use_container_width=True)
                 
-                # XAI Visualizations
+                # XAI Selection and Visualization
                 st.markdown("""
                 <div class="results-container">
                     <h2>🧠 Explainable AI (XAI) Analysis</h2>
-                    <p>Visualisasi berikut menunjukkan bagian mana dari gambar yang paling berpengaruh dalam keputusan model:</p>
+                    <p>Pilih metode visualisasi untuk memahami bagian mana dari gambar yang paling berpengaruh dalam keputusan model:</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Generate and display XAI visualizations
-                with st.spinner("Menghasilkan visualisasi XAI..."):
-                    # Saliency Map
-                    st.markdown("### 1. Saliency Map")
-                    saliency_attr = st.session_state.xai_visualizer.generate_saliency_map(
-                        input_tensor, predicted_class
-                    )
-                    display_xai_visualization(
-                        original_array, saliency_attr, "Saliency Map", method_type='gradient'
-                    )
-                    
-                    # Integrated Gradients
-                    st.markdown("### 2. Integrated Gradients")
-                    ig_attr = st.session_state.xai_visualizer.generate_integrated_gradients(
-                        input_tensor, predicted_class
-                    )
-                    display_xai_visualization(
-                        original_array, ig_attr, "Integrated Gradients", method_type='gradient'
-                    )
-                    
-                    # GradCAM
-                    st.markdown("### 3. Grad-CAM")
-                    gradcam_attr = st.session_state.xai_visualizer.generate_grad_cam(
-                        input_tensor, predicted_class
-                    )
-                    display_xai_visualization(
-                        original_array, gradcam_attr, "Grad-CAM", method_type='heatmap'
-                    )
-                    
-                    # ScoreCAM
-                    st.markdown("### 4. Score-CAM")
-                    scorecam_attr = st.session_state.xai_visualizer.generate_score_cam(
-                        input_tensor, predicted_class
-                    )
-                    display_xai_visualization(
-                        original_array, scorecam_attr, "Score-CAM", method_type='heatmap'
-                    )
+                # XAI Method Selection
+                st.markdown("""
+                <div class="xai-selection-container">
+                    <h4>🔬 Pilih Metode XAI Visualization</h4>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                st.success("✅ Analisis XAI selesai!")
+                xai_options = [
+                    "Saliency Map",
+                    "Integrated Gradients", 
+                    "Grad-CAM",
+                    "Score-CAM"
+                ]
+                
+                selected_method = st.radio(
+                    "Metode Visualisasi:",
+                    xai_options,
+                    index=0,
+                    help="Pilih salah satu metode untuk melihat visualisasi XAI"
+                )
+                
+                # Display description of selected method
+                description = get_xai_description(selected_method)
+                if description:
+                    st.markdown(f"""
+                    <div class="xai-description">
+                        <strong>Tentang {selected_method}:</strong><br>
+                        {description}
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Generate and display selected XAI visualization
+                with st.spinner(f"Menghasilkan visualisasi {selected_method}..."):
+                    if selected_method == "Saliency Map":
+                        attribution = st.session_state.xai_visualizer.generate_saliency_map(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Saliency Map", method_type='gradient'
+                        )
+                    
+                    elif selected_method == "Integrated Gradients":
+                        attribution = st.session_state.xai_visualizer.generate_integrated_gradients(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Integrated Gradients", method_type='gradient'
+                        )
+                    
+                    elif selected_method == "Grad-CAM":
+                        attribution = st.session_state.xai_visualizer.generate_grad_cam(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Grad-CAM", method_type='heatmap'
+                        )
+                    
+                    elif selected_method == "Score-CAM":
+                        attribution = st.session_state.xai_visualizer.generate_score_cam(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Score-CAM", method_type='heatmap'
+                        )
+                
+                st.success(f"✅ Visualisasi {selected_method} berhasil dibuat!")
                 
             except Exception as e:
                 st.error(f"Terjadi kesalahan saat memproses gambar: {str(e)}")
