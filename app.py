@@ -117,24 +117,6 @@ st.markdown("""
         font-size: 1rem; opacity: 0.9;
     }
     
-    .control-buttons {
-        margin: 1.5rem 0;
-        padding: 1rem;
-        background: #f8f9fa;
-        border-radius: 10px;
-        border: 1px solid #e9ecef;
-        text-align: center;
-    }
-    
-    .button-row {
-        display: flex;
-        gap: 1rem;
-        justify-content: center;
-        align-items: center;
-        flex-wrap: wrap;
-        margin: 1rem 0;
-    }
-    
     .stRadio > div {
         display: flex;
         gap: 1rem;
@@ -163,14 +145,20 @@ st.markdown("""
         border-color: #667eea;
     }
     
+    .control-buttons {
+        margin: 1.5rem 0;
+        padding: 1rem;
+        background: #f8f9fa;
+        border-radius: 10px;
+        border: 1px solid #e9ecef;
+    }
+    
     .stButton > button {
         border-radius: 8px !important;
         font-weight: 600 !important;
         transition: all 0.3s ease !important;
         border: none !important;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
-        min-width: 120px !important;
-        padding: 0.5rem 1.5rem !important;
     }
     
     .stButton > button:hover {
@@ -183,12 +171,7 @@ st.markdown("""
     }
     
     .stButton > button[kind="secondary"] {
-        background: linear-gradient(135deg, #28a745, #20c997) !important;
-        color: white !important;
-    }
-    
-    .reset-button {
-        background: linear-gradient(135deg, #dc3545, #c82333) !important;
+        background: linear-gradient(135deg, #6c757d, #495057) !important;
         color: white !important;
     }
     
@@ -252,9 +235,11 @@ class ImageProcessor:
 class ModelLoader:
     def __init__(self, model_path):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Panggil fungsi cache saat inisialisasi
         self.model, self.class_names = load_cached_model(model_path, self.device)
 
     def is_ready(self):
+        """Memeriksa apakah model berhasil dimuat."""
         return self.model is not None and self.class_names is not None
 
     def predict(self, input_tensor):
@@ -431,18 +416,6 @@ def get_xai_description(method):
     }
     return descriptions.get(method, "")
 
-def reset_session_state():
-    """Reset semua session state untuk memulai dari awal"""
-    keys_to_keep = ['image_processor', 'model_loader', 'xai_visualizer']
-    keys_to_remove = [key for key in st.session_state.keys() if key not in keys_to_keep]
-    
-    for key in keys_to_remove:
-        del st.session_state[key]
-    
-    # Reset specific states
-    st.session_state.prediction_done = False
-    st.session_state.xai_submitted = False
-
 def main():
     st.markdown("""
     <div class="header-container">
@@ -456,83 +429,57 @@ def main():
     APP_DIR = Path(__file__).resolve().parent
     MODEL_PATH = APP_DIR / "efficientnet_b0_classifier.pth"
 
-    # Initialize session state flags
-    if 'prediction_done' not in st.session_state:
-        st.session_state.prediction_done = False
-    if 'xai_submitted' not in st.session_state:
-        st.session_state.xai_submitted = False
-
-    # Initialize objects in session state
+    # Initialize objects in session state (if they don't exist)
     if 'image_processor' not in st.session_state:
         st.session_state.image_processor = ImageProcessor()
     
+    # Initialize the model loader (this will automatically call the cached function)
     if 'model_loader' not in st.session_state:
         with st.spinner("Memuat model AI, harap tunggu..."):
             st.session_state.model_loader = ModelLoader(MODEL_PATH)
-            if st.session_state.model_loader.is_ready():
-                st.success("✅ Model berhasil dimuat!")
-            else:
-                st.error(f"❌ Gagal memuat model. Pastikan file '{MODEL_PATH}' ada dan tidak rusak.")
-                st.info("Pastikan file model 'efficientnet_b0_classifier.pth' tersedia di direktori aplikasi.")
+            st.success("✅ Model berhasil dimuat!")
+
+    # Check if the model is ready to use
+    if st.session_state.model_loader.is_ready():
+        # Initialize the XAI visualizer now that the model is confirmed to be loaded
+        if 'xai_visualizer' not in st.session_state:
+            try:
+                with st.spinner("Menginisialisasi XAI visualizer..."):
+                    st.session_state.xai_visualizer = XAIVisualizer(
+                        st.session_state.model_loader.model,
+                        st.session_state.model_loader.device
+                    )
+                    st.success("✅ XAI visualizer berhasil diinisialisasi!")
+            except Exception as e:
+                st.error(f"Gagal menginisialisasi XAI: {e}")
                 st.stop()
 
-    # Initialize XAI visualizer only when needed
-    if st.session_state.model_loader.is_ready() and 'xai_visualizer' not in st.session_state:
-        try:
-            with st.spinner("Menginisialisasi XAI visualizer..."):
-                st.session_state.xai_visualizer = XAIVisualizer(
-                    st.session_state.model_loader.model,
-                    st.session_state.model_loader.device
-                )
-                st.success("✅ XAI visualizer berhasil diinisialisasi!")
-        except Exception as e:
-            st.error(f"Gagal menginisialisasi XAI: {e}")
-            st.stop()
-
-    # MAIN APPLICATION LOGIC
-    st.markdown("""
-    <div class="info-card">
-        <h3>📸 Upload Gambar Chest X-ray</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Reset button - always available
-    if st.button("🔄 Reset Aplikasi", key="reset_app"):
-        reset_session_state()
-        st.rerun()
-    
-    uploaded_file = st.file_uploader(
-        "Pilih gambar...",
-        type=['png', 'jpg', 'jpeg']
-    )
-    
-    if uploaded_file is not None:
-        try:
-            # Process image and make prediction
-            if not st.session_state.prediction_done:
-                with st.spinner("Memproses gambar dan melakukan prediksi..."):
+        # MAIN APPLICATION LOGIC
+        st.markdown("""
+        <div class="info-card">
+            <h3>📸 Upload Gambar Chest X-ray</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        uploaded_file = st.file_uploader(
+            "Pilih gambar...",
+            type=['png', 'jpg', 'jpeg']
+        )
+        
+        if uploaded_file is not None:
+            try:
+                # Process the uploaded image
+                with st.spinner("Memproses gambar..."):
                     original_image = Image.open(uploaded_file)
                     input_tensor, original_array = st.session_state.image_processor.preprocess_image(original_image)
-                    
-                    # Store processed data in session state
-                    st.session_state.original_image = original_image
-                    st.session_state.original_array = original_array
-                    st.session_state.input_tensor = input_tensor
-                    
-                    # Make prediction
+                
+                # Make prediction
+                with st.spinner("Melakukan prediksi..."):
                     predicted_class, probabilities = st.session_state.model_loader.predict(input_tensor)
                     predicted_class_name = st.session_state.model_loader.class_names[predicted_class]
                     confidence = probabilities[predicted_class] * 100
-                    
-                    # Store prediction results
-                    st.session_state.predicted_class = predicted_class
-                    st.session_state.predicted_class_name = predicted_class_name
-                    st.session_state.confidence = confidence
-                    st.session_state.probabilities = probabilities
-                    st.session_state.prediction_done = True
-
-            # Display prediction results
-            if st.session_state.prediction_done:
+                
+                # Display results
                 st.markdown("""
                 <div class="results-container">
                     <h2>📊 Hasil Prediksi</h2>
@@ -542,21 +489,22 @@ def main():
                 # Display prediction
                 st.markdown(f"""
                 <div class="prediction-container">
-                    <div class="prediction-class">Prediksi: {st.session_state.predicted_class_name}</div>
-                    <div class="prediction-confidence">Tingkat Kepercayaan: {st.session_state.confidence:.2f}%</div>
+                    <div class="prediction-class">Prediksi: {predicted_class_name}</div>
+                    <div class="prediction-confidence">Tingkat Kepercayaan: {confidence:.2f}%</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Display original image and chart
+                # Display original image
                 col1, col2 = st.columns([1, 2])
                 with col1:
-                    st.image(st.session_state.original_image, caption="Gambar yang diunggah", use_container_width=True)
+                    st.image(original_image, caption="Gambar yang diunggah", use_container_width=True)
                 
                 with col2:
-                    fig = create_prediction_chart(st.session_state.probabilities, st.session_state.model_loader.class_names)
+                    # Display probability chart
+                    fig = create_prediction_chart(probabilities, st.session_state.model_loader.class_names)
                     st.plotly_chart(fig, use_container_width=True)
                 
-                # XAI Section
+                # XAI Selection and Visualization
                 st.markdown("""
                 <div class="results-container">
                     <h2>🧠 Explainable AI (XAI) Analysis</h2>
@@ -585,7 +533,7 @@ def main():
                     help="Pilih salah satu metode untuk melihat visualisasi XAI"
                 )
                 
-                # Display description
+                # Display description of selected method
                 description = get_xai_description(selected_method)
                 if description:
                     st.markdown(f"""
@@ -595,79 +543,50 @@ def main():
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Control buttons
-                st.markdown("""
-                <div class="control-buttons">
-                    <h4>🎯 Kontrol XAI Processing</h4>
-                    <p>Tekan tombol "Analyze XAI" untuk memproses visualisasi explainable AI</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                col1, col2, col3 = st.columns([1, 1, 1])
-                
-                with col2:
-                    if st.button("🚀 Analyze XAI", type="primary", use_container_width=True):
-                        st.session_state.xai_submitted = True
-                        st.session_state.selected_method = selected_method
-                
-                # Display XAI visualization if submitted
-                if st.session_state.xai_submitted and st.session_state.get('selected_method') == selected_method:
-                    with st.spinner(f"Menghasilkan visualisasi {selected_method}..."):
-                        if selected_method == "Saliency Map":
-                            attribution = st.session_state.xai_visualizer.generate_saliency_map(
-                                st.session_state.input_tensor, st.session_state.predicted_class
-                            )
-                            display_xai_visualization(
-                                st.session_state.original_array, attribution, "Saliency Map", method_type='gradient'
-                            )
-                        
-                        elif selected_method == "Integrated Gradients":
-                            attribution = st.session_state.xai_visualizer.generate_integrated_gradients(
-                                st.session_state.input_tensor, st.session_state.predicted_class
-                            )
-                            display_xai_visualization(
-                                st.session_state.original_array, attribution, "Integrated Gradients", method_type='gradient'
-                            )
-                        
-                        elif selected_method == "Grad-CAM":
-                            attribution = st.session_state.xai_visualizer.generate_grad_cam(
-                                st.session_state.input_tensor, st.session_state.predicted_class
-                            )
-                            display_xai_visualization(
-                                st.session_state.original_array, attribution, "Grad-CAM", method_type='heatmap'
-                            )
-                        
-                        elif selected_method == "Score-CAM":
-                            attribution = st.session_state.xai_visualizer.generate_score_cam(
-                                st.session_state.input_tensor, st.session_state.predicted_class
-                            )
-                            display_xai_visualization(
-                                st.session_state.original_array, attribution, "Score-CAM", method_type='heatmap'
-                            )
+                # Generate and display selected XAI visualization
+                with st.spinner(f"Menghasilkan visualisasi {selected_method}..."):
+                    if selected_method == "Saliency Map":
+                        attribution = st.session_state.xai_visualizer.generate_saliency_map(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Saliency Map", method_type='gradient'
+                        )
                     
-                    st.success(f"✅ Visualisasi {selected_method} berhasil dibuat!")
+                    elif selected_method == "Integrated Gradients":
+                        attribution = st.session_state.xai_visualizer.generate_integrated_gradients(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Integrated Gradients", method_type='gradient'
+                        )
                     
-                    # Reset XAI submission state when method changes
-                    if st.session_state.get('selected_method') != selected_method:
-                        st.session_state.xai_submitted = False
+                    elif selected_method == "Grad-CAM":
+                        attribution = st.session_state.xai_visualizer.generate_grad_cam(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Grad-CAM", method_type='heatmap'
+                        )
+                    
+                    elif selected_method == "Score-CAM":
+                        attribution = st.session_state.xai_visualizer.generate_score_cam(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Score-CAM", method_type='heatmap'
+                        )
                 
-                # Additional control buttons
-                st.markdown("---")
-                col1, col2 = st.columns(2)
+                st.success(f"✅ Visualisasi {selected_method} berhasil dibuat!")
                 
-                with col1:
-                    if st.button("🔄 Pilih Gambar Lain", use_container_width=True):
-                        reset_session_state()
-                        st.rerun()
-                
-                with col2:
-                    if st.button("🆕 Analisis XAI Baru", use_container_width=True):
-                        st.session_state.xai_submitted = False
-                        st.rerun()
-                        
-        except Exception as e:
-            st.error(f"Terjadi kesalahan saat memproses gambar: {str(e)}")
-            st.error("Silakan coba lagi dengan gambar yang berbeda.")
+            except Exception as e:
+                st.error(f"Terjadi kesalahan saat memproses gambar: {str(e)}")
+                st.error("Silakan coba lagi dengan gambar yang berbeda.")
+    else:
+        # If the model is not ready, display an error and stop the app
+        st.error(f"❌ Gagal memuat model. Pastikan file '{MODEL_PATH}' ada dan tidak rusak.")
+        st.info("Pastikan file model 'efficientnet_b0_classifier.pth' tersedia di direktori aplikasi.")
+        st.stop()
 
 if __name__ == "__main__":
     main()
