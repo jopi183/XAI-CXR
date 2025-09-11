@@ -12,8 +12,8 @@ import io
 import plotly.express as px
 import pandas as pd
 import os 
-from captum.attr import Saliency
-from pytorch_grad_cam import GradCAM, ScoreCAM
+from captum.attr import Saliency, GuidedBackprop, DeepLift
+from pytorch_grad_cam import GradCAM, ScoreCAM, GradCAMPlusPlus
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from model import EfficientNetClassifier
 
@@ -290,15 +290,54 @@ class ModelLoader:
         
         return predicted_class, probabilities.cpu().numpy()[0]
 
+class SmoothGrad:
+    """Custom implementation of SmoothGrad"""
+    def __init__(self, model, n_samples=50, noise_level=0.15):
+        self.model = model
+        self.n_samples = n_samples
+        self.noise_level = noise_level
+    
+    def generate_smoothgrad(self, input_tensor, target_class):
+        input_tensor = input_tensor.to(next(self.model.parameters()).device)
+        input_tensor.requires_grad_(True)
+        
+        gradients = []
+        
+        for i in range(self.n_samples):
+            # Add noise to the input
+            noise = torch.randn_like(input_tensor) * self.noise_level
+            noisy_input = input_tensor + noise
+            noisy_input.requires_grad_(True)
+            
+            # Forward pass
+            output = self.model(noisy_input)
+            
+            # Backward pass
+            self.model.zero_grad()
+            target_output = output[0, target_class]
+            target_output.backward(retain_graph=True)
+            
+            # Store gradients
+            gradients.append(noisy_input.grad.clone())
+        
+        # Average the gradients
+        avg_gradient = torch.stack(gradients).mean(dim=0)
+        
+        return avg_gradient.squeeze().cpu().detach().numpy()
+
 class XAIVisualizer:
     def __init__(self, model, device):
         self.model = model
         self.device = device
         self.saliency = Saliency(model)
+        self.guided_backprop = GuidedBackprop(model)
+        self.deeplift = DeepLift(model)
+        self.smoothgrad = SmoothGrad(model)
         
         self.target_layers = [model.efficientnet.features[-1]]
         self.grad_cam = GradCAM(model=model, target_layers=self.target_layers)
         self.score_cam = ScoreCAM(model=model, target_layers=self.target_layers)
+        self.grad_cam_plus = GradCAMPlusPlus(model=model, target_layers=self.target_layers)
     
     def generate_saliency_map(self, input_tensor, target_class):
         input_tensor = input_tensor.to(self.device)
@@ -311,6 +350,37 @@ class XAIVisualizer:
             st.error(f"Error dalam generate_saliency_map: {str(e)}")
             return None
     
+    def generate_guided_backprop(self, input_tensor, target_class):
+        input_tensor = input_tensor.to(self.device)
+        input_tensor.requires_grad_(True)
+        
+        try:
+            attribution = self.guided_backprop.attribute(input_tensor, target=target_class)
+            return attribution.squeeze().cpu().detach().numpy()
+        except Exception as e:
+            st.error(f"Error dalam generate_guided_backprop: {str(e)}")
+            return None
+    
+    def generate_deeplift(self, input_tensor, target_class):
+        input_tensor = input_tensor.to(self.device)
+        
+        try:
+            # Create baseline (zeros with same shape)
+            baseline = torch.zeros_like(input_tensor)
+            attribution = self.deeplift.attribute(input_tensor, baseline, target=target_class)
+            return attribution.squeeze().cpu().detach().numpy()
+        except Exception as e:
+            st.error(f"Error dalam generate_deeplift: {str(e)}")
+            return None
+    
+    def generate_smoothgrad(self, input_tensor, target_class):
+        try:
+            attribution = self.smoothgrad.generate_smoothgrad(input_tensor, target_class)
+            return attribution
+        except Exception as e:
+            st.error(f"Error dalam generate_smoothgrad: {str(e)}")
+            return None
+    
     def generate_grad_cam(self, input_tensor, target_class):
         input_tensor = input_tensor.to(self.device)
         
@@ -320,6 +390,17 @@ class XAIVisualizer:
             return grayscale_cam[0, :]
         except Exception as e:
             st.error(f"Error dalam generate_grad_cam: {str(e)}")
+            return None
+    
+    def generate_grad_cam_plus(self, input_tensor, target_class):
+        input_tensor = input_tensor.to(self.device)
+        
+        try:
+            targets = [ClassifierOutputTarget(target_class)]
+            grayscale_cam = self.grad_cam_plus(input_tensor=input_tensor, targets=targets)
+            return grayscale_cam[0, :]
+        except Exception as e:
+            st.error(f"Error dalam generate_grad_cam_plus: {str(e)}")
             return None
     
     def generate_score_cam(self, input_tensor, target_class):
@@ -523,7 +604,11 @@ def main():
                 
                 xai_options = [
                     "Saliency Map",
+                    "Guided Backpropagation",
+                    "SmoothGrad",
+                    "DeepLIFT",
                     "Grad-CAM",
+                    "Grad-CAM++",
                     "Score-CAM"
                 ]
                 
@@ -542,12 +627,44 @@ def main():
                             original_array, attribution, "Saliency Map", method_type='gradient'
                         )
                     
+                    elif selected_method == "Guided Backpropagation":
+                        attribution = st.session_state.xai_visualizer.generate_guided_backprop(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Guided Backpropagation", method_type='gradient'
+                        )
+                    
+                    elif selected_method == "SmoothGrad":
+                        attribution = st.session_state.xai_visualizer.generate_smoothgrad(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "SmoothGrad", method_type='gradient'
+                        )
+                    
+                    elif selected_method == "DeepLIFT":
+                        attribution = st.session_state.xai_visualizer.generate_deeplift(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "DeepLIFT", method_type='gradient'
+                        )
+                    
                     elif selected_method == "Grad-CAM":
                         attribution = st.session_state.xai_visualizer.generate_grad_cam(
                             input_tensor, predicted_class
                         )
                         display_xai_visualization(
                             original_array, attribution, "Grad-CAM", method_type='heatmap'
+                        )
+                    
+                    elif selected_method == "Grad-CAM++":
+                        attribution = st.session_state.xai_visualizer.generate_grad_cam_plus(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Grad-CAM++", method_type='heatmap'
                         )
                     
                     elif selected_method == "Score-CAM":
