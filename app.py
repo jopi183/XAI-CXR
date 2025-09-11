@@ -635,13 +635,7 @@ def main():
                             original_array, attribution, "Guided Backpropagation", method_type='gradient'
                         )
                     
-                    elif selected_method == "SmoothGrad":
-                        attribution = st.session_state.xai_visualizer.generate_smoothgrad(
-                            input_tensor, predicted_class
-                        )
-                        display_xai_visualization(
-                            original_array, attribution, "SmoothGrad", method_type='gradient'
-                        )
+
                     
                     elif selected_method == "DeepLIFT":
                         attribution = st.session_state.xai_visualizer.generate_deeplift(
