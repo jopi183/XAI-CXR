@@ -12,7 +12,7 @@ import io
 import plotly.express as px
 import pandas as pd
 import os 
-from captum.attr import Saliency, IntegratedGradients
+from captum.attr import Saliency
 from pytorch_grad_cam import GradCAM, ScoreCAM
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from model import EfficientNetClassifier
@@ -22,7 +22,6 @@ warnings.filterwarnings('ignore')
 
 st.set_page_config(
     page_title="AI Image Classifier with XAI",
-    page_icon="🔍",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -32,152 +31,190 @@ st.markdown("""
     .main > div { padding-top: 2rem; }
     
     .header-container {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem; border-radius: 15px; margin-bottom: 2rem;
-        text-align: center; color: white;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+        padding: 3rem 2rem; 
+        border-radius: 8px; 
+        margin-bottom: 3rem;
+        text-align: center; 
+        color: white;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
     
     .header-title {
-        font-size: 3rem; font-weight: 700; margin-bottom: 0.5rem;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        font-size: 2.5rem; 
+        font-weight: 300; 
+        margin-bottom: 0.5rem;
+        letter-spacing: -0.5px;
     }
     
     .header-subtitle {
-        font-size: 1.2rem; opacity: 0.9; margin-bottom: 0;
+        font-size: 1.1rem; 
+        opacity: 0.8; 
+        margin-bottom: 0;
+        font-weight: 300;
     }
     
-    .info-card {
-        background: linear-gradient(145deg, #f0f2f6, #ffffff);
-        padding: 1.5rem; border-radius: 15px;
-        box-shadow: 5px 5px 15px rgba(0,0,0,0.1), -5px -5px 15px rgba(255,255,255,0.7);
-        margin-bottom: 1.5rem; border: 1px solid rgba(255,255,255,0.2);
+    .content-card {
+        background: white;
+        padding: 2rem; 
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        margin-bottom: 2rem; 
+        border: 1px solid #e8ecef;
     }
     
     .upload-area {
-        border: 3px dashed #667eea; border-radius: 15px;
-        padding: 2rem; text-align: center;
-        background: linear-gradient(145deg, #f8f9ff, #ffffff);
-        margin: 1rem 0; transition: all 0.3s ease;
+        border: 2px dashed #bdc3c7; 
+        border-radius: 8px;
+        padding: 3rem; 
+        text-align: center;
+        background: #fbfcfd;
+        margin: 1.5rem 0; 
+        transition: all 0.3s ease;
     }
     
     .upload-area:hover {
-        border-color: #764ba2;
-        background: linear-gradient(145deg, #ffffff, #f8f9ff);
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.15);
+        border-color: #95a5a6;
+        background: #f8f9fa;
     }
     
-    .results-container {
-        background: white; padding: 2rem; border-radius: 15px;
-        box-shadow: 0 5px 20px rgba(0,0,0,0.1); margin-top: 2rem;
-    }
-    
-    .xai-card {
-        background: white; padding: 1.5rem; border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-        margin-bottom: 1rem; border: 1px solid #e1e8ed;
-        transition: transform 0.2s ease;
-    }
-    
-    .xai-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 8px 25px rgba(0,0,0,0.12);
-    }
-    
-    .xai-title {
-        color: #2c3e50; font-size: 1.1rem; font-weight: 600;
-        margin-bottom: 0.5rem; text-align: center;
-    }
-    
-    .xai-selection-container {
-        background: linear-gradient(145deg, #f8f9ff, #ffffff);
-        padding: 1.5rem; border-radius: 12px;
-        border: 2px solid #667eea; margin-bottom: 2rem;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.1);
-    }
-    
-    .xai-description {
-        background: #f8f9fa; padding: 1rem; border-radius: 8px;
-        margin-top: 1rem; border-left: 4px solid #667eea;
-        font-size: 0.95rem; color: #495057;
+    .results-section {
+        background: white; 
+        padding: 2.5rem; 
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06); 
+        margin-top: 2rem;
+        border: 1px solid #e8ecef;
     }
     
     .prediction-container {
-        background: linear-gradient(135deg, #74b9ff, #0984e3);
-        padding: 1.5rem; border-radius: 12px;
-        color: white; text-align: center; margin-bottom: 1.5rem;
+        background: linear-gradient(135deg, #34495e, #2c3e50);
+        padding: 2rem; 
+        border-radius: 8px;
+        color: white; 
+        text-align: center; 
+        margin-bottom: 2rem;
     }
     
     .prediction-class {
-        font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem;
+        font-size: 1.8rem; 
+        font-weight: 300; 
+        margin-bottom: 0.5rem;
+        letter-spacing: -0.3px;
     }
     
     .prediction-confidence {
-        font-size: 1rem; opacity: 0.9;
+        font-size: 1.1rem; 
+        opacity: 0.9;
+        font-weight: 300;
+    }
+    
+    .xai-section-title {
+        font-size: 1.5rem;
+        font-weight: 300;
+        color: #2c3e50;
+        margin-bottom: 1.5rem;
+        text-align: center;
+        letter-spacing: -0.3px;
+    }
+    
+    .xai-method-container {
+        background: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 8px;
+        margin-bottom: 2rem;
+        border: 1px solid #e8ecef;
+    }
+    
+    .xai-visualization-card {
+        background: white; 
+        padding: 1.5rem; 
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+        margin-bottom: 1.5rem; 
+        border: 1px solid #e8ecef;
+    }
+    
+    .xai-card-title {
+        color: #2c3e50; 
+        font-size: 1.1rem; 
+        font-weight: 400;
+        margin-bottom: 1rem; 
+        text-align: center;
+        letter-spacing: -0.2px;
+    }
+    
+    .section-title {
+        font-size: 1.3rem;
+        font-weight: 400;
+        color: #2c3e50;
+        margin-bottom: 1.5rem;
+        letter-spacing: -0.2px;
     }
     
     .stRadio > div {
         display: flex;
         gap: 1rem;
         flex-wrap: wrap;
+        justify-content: center;
     }
     
     .stRadio > div > label {
         background: white;
-        padding: 0.75rem 1.25rem;
+        padding: 1rem 1.5rem;
         border-radius: 8px;
-        border: 2px solid #e1e8ed;
+        border: 1px solid #bdc3c7;
         cursor: pointer;
         transition: all 0.3s ease;
-        font-weight: 500;
+        font-weight: 400;
+        color: #2c3e50;
     }
     
     .stRadio > div > label:hover {
-        border-color: #667eea;
-        background: #f8f9ff;
-        transform: translateY(-1px);
+        border-color: #95a5a6;
+        background: #f8f9fa;
     }
     
     .stRadio > div > label[data-checked="true"] {
-        background: linear-gradient(135deg, #667eea, #764ba2);
+        background: #34495e;
         color: white;
-        border-color: #667eea;
-    }
-    
-    .control-buttons {
-        margin: 1.5rem 0;
-        padding: 1rem;
-        background: #f8f9fa;
-        border-radius: 10px;
-        border: 1px solid #e9ecef;
+        border-color: #34495e;
     }
     
     .stButton > button {
-        border-radius: 8px !important;
-        font-weight: 600 !important;
+        border-radius: 6px !important;
+        font-weight: 400 !important;
         transition: all 0.3s ease !important;
-        border: none !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+        border: 1px solid #bdc3c7 !important;
+        box-shadow: none !important;
+        letter-spacing: -0.1px !important;
     }
     
     .stButton > button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important;
+        border-color: #95a5a6 !important;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08) !important;
     }
     
     .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #667eea, #764ba2) !important;
+        background: #34495e !important;
+        border-color: #34495e !important;
+        color: white !important;
     }
     
     .stButton > button[kind="secondary"] {
-        background: linear-gradient(135deg, #6c757d, #495057) !important;
-        color: white !important;
+        background: white !important;
+        color: #2c3e50 !important;
     }
     
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    h1, h2, h3, h4, h5, h6 {
+        font-weight: 300 !important;
+        letter-spacing: -0.3px !important;
+        color: #2c3e50 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -235,11 +272,9 @@ class ImageProcessor:
 class ModelLoader:
     def __init__(self, model_path):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # Panggil fungsi cache saat inisialisasi
         self.model, self.class_names = load_cached_model(model_path, self.device)
 
     def is_ready(self):
-        """Memeriksa apakah model berhasil dimuat."""
         return self.model is not None and self.class_names is not None
 
     def predict(self, input_tensor):
@@ -260,7 +295,6 @@ class XAIVisualizer:
         self.model = model
         self.device = device
         self.saliency = Saliency(model)
-        self.integrated_gradients = IntegratedGradients(model)
         
         self.target_layers = [model.efficientnet.features[-1]]
         self.grad_cam = GradCAM(model=model, target_layers=self.target_layers)
@@ -275,20 +309,6 @@ class XAIVisualizer:
             return attribution.squeeze().cpu().detach().numpy()
         except Exception as e:
             st.error(f"Error dalam generate_saliency_map: {str(e)}")
-            return None
-    
-    def generate_integrated_gradients(self, input_tensor, target_class, steps=50):
-        input_tensor = input_tensor.to(self.device)
-        
-        try:
-            attribution = self.integrated_gradients.attribute(
-                input_tensor, 
-                target=target_class, 
-                n_steps=steps
-            )
-            return attribution.squeeze().cpu().detach().numpy()
-        except Exception as e:
-            st.error(f"Error dalam generate_integrated_gradients: {str(e)}")
             return None
     
     def generate_grad_cam(self, input_tensor, target_class):
@@ -346,8 +366,8 @@ def create_prediction_chart(probabilities, class_names):
         y='Class',
         orientation='h',
         color='Probability',
-        color_continuous_scale='Viridis',
-        title='Prediksi Probabilitas Kelas'
+        color_continuous_scale=['#ecf0f1', '#34495e'],
+        title='Classification Probabilities'
     )
     
     fig.update_layout(
@@ -355,32 +375,37 @@ def create_prediction_chart(probabilities, class_names):
         showlegend=False,
         title_font_size=16,
         title_x=0.5,
-        xaxis_title="Probabilitas (%)",
-        yaxis_title="Kelas",
-        coloraxis_showscale=False
+        title_font_family="Arial",
+        title_font_color="#2c3e50",
+        xaxis_title="Probability (%)",
+        yaxis_title="Class",
+        coloraxis_showscale=False,
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font_color="#2c3e50"
     )
     
     return fig
 
 def display_xai_visualization(original_image, attribution, title, method_type='heatmap'):
     if attribution is None:
-        st.warning(f"⚠️ Tidak dapat menghasilkan visualisasi untuk {title}")
+        st.warning(f"Tidak dapat menghasilkan visualisasi untuk {title}")
         return
     
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown(f"""
-        <div class="xai-card">
-            <div class="xai-title">Gambar Asli</div>
+        <div class="xai-visualization-card">
+            <div class="xai-card-title">Original Image</div>
         </div>
         """, unsafe_allow_html=True)
         st.image(original_image, caption="Original Image", use_container_width=True)
     
     with col2:
         st.markdown(f"""
-        <div class="xai-card">
-            <div class="xai-title">{title} Visualization</div>
+        <div class="xai-visualization-card">
+            <div class="xai-card-title">{title}</div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -397,7 +422,7 @@ def display_xai_visualization(original_image, attribution, title, method_type='h
                 ax.imshow(attribution_gray, cmap='hot', alpha=0.8)
                 ax.imshow(original_image, alpha=0.3)
                 ax.axis('off')
-                ax.set_title(f'{title} Visualization', fontsize=14, fontweight='bold')
+                ax.set_title(f'{title}', fontsize=14, fontweight='300', color='#2c3e50')
                 
                 buf = io.BytesIO()
                 plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white')
@@ -407,20 +432,11 @@ def display_xai_visualization(original_image, attribution, title, method_type='h
         except Exception as e:
             st.error(f"Error dalam visualisasi {title}: {str(e)}")
 
-def get_xai_description(method):
-    descriptions = {
-        "Saliency Map": "Menunjukkan piksel mana yang paling berkontribusi terhadap prediksi dengan menghitung gradien dari output terhadap input.",
-        "Integrated Gradients": "Metode yang lebih robust dengan mengintegrasikan gradien sepanjang jalur dari baseline ke input untuk mengurangi noise.",
-        "Grad-CAM": "Menggunakan gradien dari layer konvolusi terakhir untuk menghasilkan heatmap lokalisasi yang kasar namun spesifik kelas.",
-        "Score-CAM": "Menggunakan forward pass untuk menghasilkan heatmap tanpa bergantung pada gradien, memberikan visualisasi yang lebih stabil."
-    }
-    return descriptions.get(method, "")
-
 def main():
     st.markdown("""
     <div class="header-container">
-        <div class="header-title">🔍 Chest X-ray Classification</div>
-        <div class="header-subtitle">with Explainable AI (XAI) Visualization</div>
+        <div class="header-title">Chest X-ray Classification</div>
+        <div class="header-subtitle">AI-powered medical image analysis with explainable AI</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -429,136 +445,101 @@ def main():
     APP_DIR = Path(__file__).resolve().parent
     MODEL_PATH = APP_DIR / "efficientnet_b0_classifier.pth"
 
-    # Initialize objects in session state (if they don't exist)
     if 'image_processor' not in st.session_state:
         st.session_state.image_processor = ImageProcessor()
     
-    # Initialize the model loader (this will automatically call the cached function)
     if 'model_loader' not in st.session_state:
-        with st.spinner("Memuat model AI, harap tunggu..."):
+        with st.spinner("Loading AI model..."):
             st.session_state.model_loader = ModelLoader(MODEL_PATH)
-            st.success("✅ Model berhasil dimuat!")
+            st.success("Model loaded successfully")
 
-    # Check if the model is ready to use
     if st.session_state.model_loader.is_ready():
-        # Initialize the XAI visualizer now that the model is confirmed to be loaded
         if 'xai_visualizer' not in st.session_state:
             try:
-                with st.spinner("Menginisialisasi XAI visualizer..."):
+                with st.spinner("Initializing XAI visualizer..."):
                     st.session_state.xai_visualizer = XAIVisualizer(
                         st.session_state.model_loader.model,
                         st.session_state.model_loader.device
                     )
-                    st.success("✅ XAI visualizer berhasil diinisialisasi!")
+                    st.success("XAI visualizer initialized successfully")
             except Exception as e:
-                st.error(f"Gagal menginisialisasi XAI: {e}")
+                st.error(f"Failed to initialize XAI: {e}")
                 st.stop()
 
-        # MAIN APPLICATION LOGIC
         st.markdown("""
-        <div class="info-card">
-            <h3>📸 Upload Gambar Chest X-ray</h3>
+        <div class="content-card">
+            <h3 class="section-title">Upload Chest X-ray Image</h3>
         </div>
         """, unsafe_allow_html=True)
         
         uploaded_file = st.file_uploader(
-            "Pilih gambar...",
+            "Choose an image file",
             type=['png', 'jpg', 'jpeg']
         )
         
         if uploaded_file is not None:
             try:
-                # Process the uploaded image
-                with st.spinner("Memproses gambar..."):
+                with st.spinner("Processing image..."):
                     original_image = Image.open(uploaded_file)
                     input_tensor, original_array = st.session_state.image_processor.preprocess_image(original_image)
                 
-                # Make prediction
-                with st.spinner("Melakukan prediksi..."):
+                with st.spinner("Making prediction..."):
                     predicted_class, probabilities = st.session_state.model_loader.predict(input_tensor)
                     predicted_class_name = st.session_state.model_loader.class_names[predicted_class]
                     confidence = probabilities[predicted_class] * 100
                 
-                # Display results
                 st.markdown("""
-                <div class="results-container">
-                    <h2>📊 Hasil Prediksi</h2>
+                <div class="results-section">
+                    <h2 class="section-title">Classification Results</h2>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Display prediction
                 st.markdown(f"""
                 <div class="prediction-container">
-                    <div class="prediction-class">Prediksi: {predicted_class_name}</div>
-                    <div class="prediction-confidence">Tingkat Kepercayaan: {confidence:.2f}%</div>
+                    <div class="prediction-class">Prediction: {predicted_class_name}</div>
+                    <div class="prediction-confidence">Confidence: {confidence:.2f}%</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Display original image
                 col1, col2 = st.columns([1, 2])
                 with col1:
-                    st.image(original_image, caption="Gambar yang diunggah", use_container_width=True)
+                    st.image(original_image, caption="Uploaded Image", use_container_width=True)
                 
                 with col2:
-                    # Display probability chart
                     fig = create_prediction_chart(probabilities, st.session_state.model_loader.class_names)
                     st.plotly_chart(fig, use_container_width=True)
                 
-                # XAI Selection and Visualization
                 st.markdown("""
-                <div class="results-container">
-                    <h2>🧠 Explainable AI (XAI) Analysis</h2>
-                    <p>Pilih metode visualisasi untuk memahami bagian mana dari gambar yang paling berpengaruh dalam keputusan model:</p>
+                <div class="results-section">
+                    <h2 class="xai-section-title">Explainable AI Analysis</h2>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # XAI Method Selection
                 st.markdown("""
-                <div class="xai-selection-container">
-                    <h4>🔬 Pilih Metode XAI Visualization</h4>
+                <div class="xai-method-container">
+                    <h4 class="section-title">Select Visualization Method</h4>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 xai_options = [
                     "Saliency Map",
-                    "Integrated Gradients", 
                     "Grad-CAM",
                     "Score-CAM"
                 ]
                 
                 selected_method = st.radio(
-                    "Metode Visualisasi:",
+                    "Visualization Method:",
                     xai_options,
-                    index=0,
-                    help="Pilih salah satu metode untuk melihat visualisasi XAI"
+                    index=0
                 )
                 
-                # Display description of selected method
-                description = get_xai_description(selected_method)
-                if description:
-                    st.markdown(f"""
-                    <div class="xai-description">
-                        <strong>Tentang {selected_method}:</strong><br>
-                        {description}
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # Generate and display selected XAI visualization
-                with st.spinner(f"Menghasilkan visualisasi {selected_method}..."):
+                with st.spinner(f"Generating {selected_method} visualization..."):
                     if selected_method == "Saliency Map":
                         attribution = st.session_state.xai_visualizer.generate_saliency_map(
                             input_tensor, predicted_class
                         )
                         display_xai_visualization(
                             original_array, attribution, "Saliency Map", method_type='gradient'
-                        )
-                    
-                    elif selected_method == "Integrated Gradients":
-                        attribution = st.session_state.xai_visualizer.generate_integrated_gradients(
-                            input_tensor, predicted_class
-                        )
-                        display_xai_visualization(
-                            original_array, attribution, "Integrated Gradients", method_type='gradient'
                         )
                     
                     elif selected_method == "Grad-CAM":
@@ -577,15 +558,14 @@ def main():
                             original_array, attribution, "Score-CAM", method_type='heatmap'
                         )
                 
-                st.success(f"✅ Visualisasi {selected_method} berhasil dibuat!")
+                st.success(f"{selected_method} visualization generated successfully")
                 
             except Exception as e:
-                st.error(f"Terjadi kesalahan saat memproses gambar: {str(e)}")
-                st.error("Silakan coba lagi dengan gambar yang berbeda.")
+                st.error(f"Error processing image: {str(e)}")
+                st.error("Please try again with a different image.")
     else:
-        # If the model is not ready, display an error and stop the app
-        st.error(f"❌ Gagal memuat model. Pastikan file '{MODEL_PATH}' ada dan tidak rusak.")
-        st.info("Pastikan file model 'efficientnet_b0_classifier.pth' tersedia di direktori aplikasi.")
+        st.error(f"Failed to load model. Please ensure '{MODEL_PATH}' exists and is not corrupted.")
+        st.info("Make sure the model file 'efficientnet_b0_classifier.pth' is available in the application directory.")
         st.stop()
 
 if __name__ == "__main__":
