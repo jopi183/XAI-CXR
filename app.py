@@ -330,7 +330,7 @@ class XAIVisualizer:
             input_tensor = input_tensor.to(self.device)
             targets = [ClassifierOutputTarget(target_class)]
             
-            score_cam = ScoreCAM(model=self.model, target_layers=[self.model.efficientnet.features[-2]])
+            score_cam = ScoreCAM(model=self.model, target_layers=[self.model.efficientnet.features[-1]])
             
             grayscale_cam = score_cam(input_tensor=input_tensor, targets=targets)
             
