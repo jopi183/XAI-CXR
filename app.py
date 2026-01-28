@@ -228,6 +228,7 @@ def load_cached_model(model_path, device):
         checkpoint = torch.load(model_path, map_location=device)
         class_names = checkpoint.get('class_names')
         num_classes = checkpoint.get('num_classes')
+        
 
         if num_classes is None:
             st.error("Checkpoint tidak berisi 'num_classes'.")
