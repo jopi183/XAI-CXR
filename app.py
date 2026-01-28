@@ -12,7 +12,7 @@ import io
 import plotly.express as px
 import pandas as pd
 import os
-from captum.attr import Saliency, GuidedBackprop, DeepLift
+from captum.attr import Saliency, GuidedBackprop, DeepLift, IntegratedGradients
 from pytorch_grad_cam import GradCAM, ScoreCAM, GradCAMPlusPlus
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from model import EfficientNetClassifier
@@ -56,24 +56,19 @@ st.markdown("""
 
 @st.cache_resource
 def load_cached_model(model_path, device):
-    """Load model with improved state_dict handling"""
     try:
         if not os.path.exists(model_path):
             st.error(f"File model tidak ditemukan: {model_path}")
             return None, None
         
-        # Load checkpoint
         checkpoint = torch.load(model_path, map_location=device)
         
-        # Extract state_dict
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             state_dict = checkpoint['model_state_dict']
             class_names = checkpoint.get('class_names')
             num_classes = checkpoint.get('num_classes')
         else:
-            # If checkpoint is the state_dict itself
             state_dict = checkpoint
-            # Try to infer num_classes from the classifier layer
             classifier_key = None
             for key in state_dict.keys():
                 if 'classifier' in key and 'weight' in key:
@@ -88,37 +83,27 @@ def load_cached_model(model_path, device):
             
             class_names = [f"Class_{i}" for i in range(num_classes)]
         
-        # Clean state_dict - remove profiling keys
         clean_state_dict = {
             k: v for k, v in state_dict.items() 
             if not k.endswith("total_ops") and not k.endswith("total_params") and not k.endswith("num_batches_tracked")
         }
         
-        # Fix key names if needed - remove 'efficientnet.' prefix if present in checkpoint
-        # but needed by model, or add it if missing
         fixed_state_dict = {}
-        needs_prefix = any(k.startswith('efficientnet.') for k in clean_state_dict.keys())
-        
         for k, v in clean_state_dict.items():
-            # If saved with 'efficientnet.' prefix but model doesn't expect it
             if k.startswith('efficientnet.'):
                 new_key = k
-            # If saved without 'efficientnet.' prefix but model expects it
             elif k.startswith('features.') or k.startswith('classifier.'):
                 new_key = 'efficientnet.' + k
             else:
                 new_key = k
             fixed_state_dict[new_key] = v
         
-        # Create model
         model = EfficientNetClassifier(num_classes=num_classes).to(device)
         
-        # Try loading with strict=False to see what keys don't match
         try:
             model.load_state_dict(fixed_state_dict, strict=True)
         except RuntimeError as e:
             st.warning("Attempting flexible model loading due to key mismatch...")
-            # Try without the efficientnet prefix
             alternative_state_dict = {}
             for k, v in clean_state_dict.items():
                 if k.startswith('efficientnet.'):
@@ -191,23 +176,22 @@ class XAIVisualizer:
     def __init__(self, model, device):
         self.model = model
         self.device = device
+        
         self.saliency = Saliency(model)
         self.guided_backprop = GuidedBackprop(model)
         self.deeplift = DeepLift(model)
+        self.integrated_gradients = IntegratedGradients(model)
         
-        # Get the last convolutional layer
         self.target_layers = [model.efficientnet.features[-1]]
-        
-        self.grad_cam = GradCAM(model=model, target_layers=self.target_layers)
-        self.score_cam = ScoreCAM(model=model, target_layers=self.target_layers)
-        self.grad_cam_plus = GradCAMPlusPlus(model=model, target_layers=self.target_layers)
     
     def generate_saliency_map(self, input_tensor, target_class):
         input_tensor = input_tensor.to(self.device)
         input_tensor.requires_grad_(True)
         try:
             attribution = self.saliency.attribute(input_tensor, target=target_class)
-            return attribution.squeeze().cpu().detach().numpy()
+            attr_np = attribution.squeeze().cpu().detach().numpy()
+            attr_np = np.abs(attr_np).sum(axis=0)
+            return attr_np
         except Exception as e:
             st.error(f"Error dalam generate_saliency_map: {str(e)}")
             return None
@@ -217,7 +201,11 @@ class XAIVisualizer:
         input_tensor.requires_grad_(True)
         try:
             attribution = self.guided_backprop.attribute(input_tensor, target=target_class)
-            return attribution.squeeze().cpu().detach().numpy()
+            attr_np = attribution.squeeze().cpu().detach().numpy()
+            attr_np = np.maximum(attr_np, 0)
+            attr_np = np.transpose(attr_np, (1, 2, 0))
+            attr_np = np.mean(attr_np, axis=2)
+            return attr_np
         except Exception as e:
             st.error(f"Error dalam generate_guided_backprop: {str(e)}")
             return None
@@ -227,16 +215,37 @@ class XAIVisualizer:
         try:
             baseline = torch.zeros_like(input_tensor)
             attribution = self.deeplift.attribute(input_tensor, baseline, target=target_class)
-            return attribution.squeeze().cpu().detach().numpy()
+            attr_np = attribution.squeeze().cpu().detach().numpy()
+            attr_np = attr_np.sum(axis=0)
+            return attr_np
         except Exception as e:
             st.error(f"Error dalam generate_deeplift: {str(e)}")
             return None
     
-    def generate_grad_cam(self, input_tensor, target_class):
+    def generate_integrated_gradients(self, input_tensor, target_class):
         input_tensor = input_tensor.to(self.device)
         try:
+            baseline = torch.zeros_like(input_tensor)
+            attribution = self.integrated_gradients.attribute(
+                input_tensor, 
+                baseline, 
+                target=target_class,
+                n_steps=50
+            )
+            attr_np = attribution.squeeze().cpu().detach().numpy()
+            attr_np = np.mean(np.abs(attr_np), axis=0)
+            return attr_np
+        except Exception as e:
+            st.error(f"Error dalam generate_integrated_gradients: {str(e)}")
+            return None
+    
+    def generate_grad_cam(self, input_tensor, target_class):
+        """Generate GradCAM - uses gradients to weight feature maps"""
+        input_tensor = input_tensor.to(self.device)
+        try:
+            grad_cam = GradCAM(model=self.model, target_layers=self.target_layers)
             targets = [ClassifierOutputTarget(target_class)]
-            grayscale_cam = self.grad_cam(input_tensor=input_tensor, targets=targets)
+            grayscale_cam = grad_cam(input_tensor=input_tensor, targets=targets)
             return grayscale_cam[0, :]
         except Exception as e:
             st.error(f"Error dalam generate_grad_cam: {str(e)}")
@@ -245,8 +254,9 @@ class XAIVisualizer:
     def generate_grad_cam_plus(self, input_tensor, target_class):
         input_tensor = input_tensor.to(self.device)
         try:
+            grad_cam_plus = GradCAMPlusPlus(model=self.model, target_layers=self.target_layers)
             targets = [ClassifierOutputTarget(target_class)]
-            grayscale_cam = self.grad_cam_plus(input_tensor=input_tensor, targets=targets)
+            grayscale_cam = grad_cam_plus(input_tensor=input_tensor, targets=targets)
             return grayscale_cam[0, :]
         except Exception as e:
             st.error(f"Error dalam generate_grad_cam_plus: {str(e)}")
@@ -258,25 +268,48 @@ class XAIVisualizer:
                 input_tensor = input_tensor.unsqueeze(0)
             
             input_tensor = input_tensor.to(self.device)
+            score_cam = ScoreCAM(
+                model=self.model, 
+                target_layers=self.target_layers,
+                use_cuda=torch.cuda.is_available()
+            )
             targets = [ClassifierOutputTarget(target_class)]
-            score_cam = ScoreCAM(model=self.model, target_layers=[self.model.efficientnet.features[-1]])
             grayscale_cam = score_cam(input_tensor=input_tensor, targets=targets)
-            heatmap = grayscale_cam[0, :]
-            heatmap = cv2.normalize(heatmap, None, 0, 1, cv2.NORM_MINMAX)
-            return heatmap
+            return grayscale_cam[0, :]
         except Exception as e:
             st.error(f"Error dalam generate_score_cam: {str(e)}")
             return None
     
-    def create_heatmap_overlay(self, original_image, heatmap, alpha=0.4):
+    def create_heatmap_overlay(self, original_image, heatmap, alpha=0.5, colormap='jet'):
         if heatmap is None:
             return original_image
         
         heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
+        
         heatmap_resized = cv2.resize(heatmap, (original_image.shape[1], original_image.shape[0]))
-        heatmap_colored = plt.cm.jet(heatmap_resized)[:, :, :3]
+        
+        cmap = plt.get_cmap(colormap)
+        heatmap_colored = cmap(heatmap_resized)[:, :, :3]
+        
         original_normalized = original_image.astype(np.float32) / 255.0
+        
         blended = (1 - alpha) * original_normalized + alpha * heatmap_colored
+        return (blended * 255).astype(np.uint8)
+    
+    def create_gradient_overlay(self, original_image, gradient_map, alpha=0.6):
+        if gradient_map is None:
+            return original_image
+        
+        gradient_map = (gradient_map - gradient_map.min()) / (gradient_map.max() - gradient_map.min() + 1e-8)
+        
+        gradient_resized = cv2.resize(gradient_map, (original_image.shape[1], original_image.shape[0]))
+        
+        cmap = plt.get_cmap('hot')
+        gradient_colored = cmap(gradient_resized)[:, :, :3]
+        
+        original_normalized = original_image.astype(np.float32) / 255.0
+        
+        blended = (1 - alpha) * original_normalized + alpha * gradient_colored
         return (blended * 255).astype(np.uint8)
 
 
@@ -315,7 +348,8 @@ def create_prediction_chart(probabilities, class_names):
     return fig
 
 
-def display_xai_visualization(original_image, attribution, title, method_type='heatmap'):
+def display_xai_visualization(original_image, attribution, title, method_type='heatmap', visualizer=None):
+    """Display XAI visualization with proper distinction between methods"""
     if attribution is None:
         st.warning(f"Tidak dapat menghasilkan visualisasi untuk {title}")
         return
@@ -335,31 +369,39 @@ def display_xai_visualization(original_image, attribution, title, method_type='h
         
         try:
             if method_type == 'heatmap':
-                visualizer = st.session_state.xai_visualizer
-                overlay = visualizer.create_heatmap_overlay(original_image, attribution)
+                # CAM methods - use jet colormap
+                overlay = visualizer.create_heatmap_overlay(
+                    original_image, 
+                    attribution, 
+                    alpha=0.5, 
+                    colormap='jet'
+                )
                 st.image(overlay, caption=f"{title} Overlay", use_container_width=True)
             else:
-                attribution_normalized = np.transpose(attribution, (1, 2, 0))
-                attribution_gray = np.mean(np.abs(attribution_normalized), axis=2)
-                
-                fig, ax = plt.subplots(figsize=(8, 8))
-                ax.imshow(attribution_gray, cmap='hot', alpha=0.8)
-                ax.imshow(original_image, alpha=0.3)
-                ax.axis('off')
-                ax.set_title(f'{title}', fontsize=14, fontweight='300', color='#2c3e50')
-                
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white')
-                buf.seek(0)
-                st.image(buf, use_container_width=True)
-                plt.close()
+                # Gradient methods - use hot colormap
+                overlay = visualizer.create_gradient_overlay(
+                    original_image, 
+                    attribution, 
+                    alpha=0.6
+                )
+                st.image(overlay, caption=f"{title} Overlay", use_container_width=True)
+            
+            # Show statistics
+            st.markdown(f"""
+            **Attribution Statistics:**
+            - Min: {attribution.min():.4f}
+            - Max: {attribution.max():.4f}
+            - Mean: {attribution.mean():.4f}
+            - Std: {attribution.std():.4f}
+            """)
+            
         except Exception as e:
             st.error(f"Error dalam visualisasi {title}: {str(e)}")
 
 
 def main():
     st.markdown("""<div class="result-box" style="text-align: center; padding: 30px;">
-        <h1 class="title-text">🏥 Chest X-ray Classification</h1>
+        <h1 class="title-text">Chest X-ray Classification</h1>
         <p style="color: #7f8c8d; font-size: 18px;">AI-powered medical image analysis with explainable AI</p>
     </div>""", unsafe_allow_html=True)
     
@@ -375,7 +417,7 @@ def main():
             st.session_state.model_loader = ModelLoader(MODEL_PATH)
             
     if st.session_state.model_loader.is_ready():
-        st.success("✅ Model loaded successfully")
+        st.success("Model loaded successfully")
         
         if 'xai_visualizer' not in st.session_state:
             try:
@@ -384,13 +426,13 @@ def main():
                         st.session_state.model_loader.model,
                         st.session_state.model_loader.device
                     )
-                st.success("✅ XAI visualizer initialized successfully")
+                st.success("XAI visualizer initialized successfully")
             except Exception as e:
                 st.error(f"Failed to initialize XAI: {e}")
                 st.stop()
         
         st.markdown("""<div class="result-box">
-            <h3 class="title-text">📤 Upload Chest X-ray Image</h3>
+            <h3 class="title-text">Upload Chest X-ray Image</h3>
         </div>""", unsafe_allow_html=True)
         
         uploaded_file = st.file_uploader(
@@ -410,7 +452,7 @@ def main():
                     confidence = probabilities[predicted_class] * 100
                 
                 st.markdown("""<div class="result-box">
-                    <h3 class="title-text">🎯 Classification Results</h3>
+                    <h3 class="title-text">Classification Results</h3>
                 </div>""", unsafe_allow_html=True)
                 
                 st.markdown(f"""<div class="result-box" style="background-color: #e8f5e9;">
@@ -428,25 +470,37 @@ def main():
                     st.plotly_chart(fig, use_container_width=True)
                 
                 st.markdown("""<div class="result-box">
-                    <h3 class="title-text">🔍 Explainable AI Analysis</h3>
+                    <h3 class="title-text">Explainable AI Analysis</h3>
                 </div>""", unsafe_allow_html=True)
+                
                 
                 st.markdown("""<div class="result-box">
                     <h4 class="title-text">Select Visualization Method</h4>
                 </div>""", unsafe_allow_html=True)
                 
-                xai_options = [
-                    "Saliency Map",
-                    "Guided Backpropagation",
-                    "DeepLIFT",
-                    "Grad-CAM",
-                    "Grad-CAM++",
-                    "Score-CAM"
-                ]
+                col_method1, col_method2 = st.columns(2)
                 
+                with col_method1:
+                    st.markdown("**Gradient-based Methods:**")
+                    gradient_methods = [
+                        "Saliency Map",
+                        "Guided Backpropagation",
+                        "DeepLIFT",
+                        "Integrated Gradients"
+                    ]
+                
+                with col_method2:
+                    st.markdown("**CAM-based Methods:**")
+                    cam_methods = [
+                        "Grad-CAM",
+                        "Grad-CAM++",
+                        "Score-CAM"
+                    ]
+                
+                all_methods = gradient_methods + cam_methods
                 selected_method = st.radio(
-                    "Visualization Method:",
-                    xai_options,
+                    "Choose a method:",
+                    all_methods,
                     index=0
                 )
                 
@@ -456,7 +510,9 @@ def main():
                             input_tensor, predicted_class
                         )
                         display_xai_visualization(
-                            original_array, attribution, "Saliency Map", method_type='gradient'
+                            original_array, attribution, "Saliency Map", 
+                            method_type='gradient',
+                            visualizer=st.session_state.xai_visualizer
                         )
                     
                     elif selected_method == "Guided Backpropagation":
@@ -464,7 +520,9 @@ def main():
                             input_tensor, predicted_class
                         )
                         display_xai_visualization(
-                            original_array, attribution, "Guided Backpropagation", method_type='gradient'
+                            original_array, attribution, "Guided Backpropagation", 
+                            method_type='gradient',
+                            visualizer=st.session_state.xai_visualizer
                         )
                     
                     elif selected_method == "DeepLIFT":
@@ -472,7 +530,19 @@ def main():
                             input_tensor, predicted_class
                         )
                         display_xai_visualization(
-                            original_array, attribution, "DeepLIFT", method_type='gradient'
+                            original_array, attribution, "DeepLIFT", 
+                            method_type='gradient',
+                            visualizer=st.session_state.xai_visualizer
+                        )
+                    
+                    elif selected_method == "Integrated Gradients":
+                        attribution = st.session_state.xai_visualizer.generate_integrated_gradients(
+                            input_tensor, predicted_class
+                        )
+                        display_xai_visualization(
+                            original_array, attribution, "Integrated Gradients", 
+                            method_type='gradient',
+                            visualizer=st.session_state.xai_visualizer
                         )
                     
                     elif selected_method == "Grad-CAM":
@@ -480,7 +550,9 @@ def main():
                             input_tensor, predicted_class
                         )
                         display_xai_visualization(
-                            original_array, attribution, "Grad-CAM", method_type='heatmap'
+                            original_array, attribution, "Grad-CAM", 
+                            method_type='heatmap',
+                            visualizer=st.session_state.xai_visualizer
                         )
                     
                     elif selected_method == "Grad-CAM++":
@@ -488,7 +560,9 @@ def main():
                             input_tensor, predicted_class
                         )
                         display_xai_visualization(
-                            original_array, attribution, "Grad-CAM++", method_type='heatmap'
+                            original_array, attribution, "Grad-CAM++", 
+                            method_type='heatmap',
+                            visualizer=st.session_state.xai_visualizer
                         )
                     
                     elif selected_method == "Score-CAM":
@@ -496,16 +570,19 @@ def main():
                             input_tensor, predicted_class
                         )
                         display_xai_visualization(
-                            original_array, attribution, "Score-CAM", method_type='heatmap'
+                            original_array, attribution, "Score-CAM", 
+                            method_type='heatmap',
+                            visualizer=st.session_state.xai_visualizer
                         )
                 
-                st.success(f"✅ {selected_method} visualization generated successfully")
+                st.success(f"{selected_method} visualization generated successfully")
                 
             except Exception as e:
                 st.error(f"Error processing image: {str(e)}")
-                st.error("Please try again with a different image.")
+                import traceback
+                st.error(traceback.format_exc())
     else:
-        st.error(f"❌ Failed to load model. Please ensure '{MODEL_PATH}' exists and is not corrupted.")
+        st.error(f"Failed to load model. Please ensure '{MODEL_PATH}' exists and is not corrupted.")
         st.info("Make sure the model file 'efficientnet_b0_classifier.pth' is available in the application directory.")
         st.stop()
 
