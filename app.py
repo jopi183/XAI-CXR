@@ -386,14 +386,7 @@ def display_xai_visualization(original_image, attribution, title, method_type='h
                 )
                 st.image(overlay, caption=f"{title} Overlay", use_container_width=True)
             
-            st.markdown(f"""
-            **Attribution Statistics:**
-            - Min: {attribution.min():.4f}
-            - Max: {attribution.max():.4f}
-            - Mean: {attribution.mean():.4f}
-            - Std: {attribution.std():.4f}
-            """)
-            
+        
         except Exception as e:
             st.error(f"Error dalam visualisasi {title}: {str(e)}")
 
@@ -431,7 +424,7 @@ def main():
                 st.stop()
         
         st.markdown("""<div class="result-box">
-            <h3 class="title-text">📤 Upload Chest X-ray Image</h3>
+            <h3 class="title-text">Upload Chest X-ray Image</h3>
         </div>""", unsafe_allow_html=True)
         
         uploaded_file = st.file_uploader(
@@ -492,7 +485,6 @@ def main():
                     cam_methods = [
                         "Grad-CAM",
                         "Grad-CAM++",
-                        "Score-CAM"
                     ]
                 
                 all_methods = gradient_methods + cam_methods
