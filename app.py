@@ -240,7 +240,6 @@ class XAIVisualizer:
             return None
     
     def generate_grad_cam(self, input_tensor, target_class):
-        """Generate GradCAM - uses gradients to weight feature maps"""
         input_tensor = input_tensor.to(self.device)
         try:
             grad_cam = GradCAM(model=self.model, target_layers=self.target_layers)
@@ -249,6 +248,8 @@ class XAIVisualizer:
             return grayscale_cam[0, :]
         except Exception as e:
             st.error(f"Error dalam generate_grad_cam: {str(e)}")
+            import traceback
+            st.error(traceback.format_exc())
             return None
     
     def generate_grad_cam_plus(self, input_tensor, target_class):
@@ -260,6 +261,8 @@ class XAIVisualizer:
             return grayscale_cam[0, :]
         except Exception as e:
             st.error(f"Error dalam generate_grad_cam_plus: {str(e)}")
+            import traceback
+            st.error(traceback.format_exc())
             return None
     
     def generate_score_cam(self, input_tensor, target_class):
@@ -270,20 +273,20 @@ class XAIVisualizer:
             input_tensor = input_tensor.to(self.device)
             score_cam = ScoreCAM(
                 model=self.model, 
-                target_layers=self.target_layers,
-                use_cuda=torch.cuda.is_available()
+                target_layers=self.target_layers
             )
             targets = [ClassifierOutputTarget(target_class)]
             grayscale_cam = score_cam(input_tensor=input_tensor, targets=targets)
             return grayscale_cam[0, :]
         except Exception as e:
             st.error(f"Error dalam generate_score_cam: {str(e)}")
+            import traceback
+            st.error(traceback.format_exc())
             return None
     
     def create_heatmap_overlay(self, original_image, heatmap, alpha=0.5, colormap='jet'):
         if heatmap is None:
             return original_image
-        
         heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
         
         heatmap_resized = cv2.resize(heatmap, (original_image.shape[1], original_image.shape[0]))
@@ -349,7 +352,6 @@ def create_prediction_chart(probabilities, class_names):
 
 
 def display_xai_visualization(original_image, attribution, title, method_type='heatmap', visualizer=None):
-    """Display XAI visualization with proper distinction between methods"""
     if attribution is None:
         st.warning(f"Tidak dapat menghasilkan visualisasi untuk {title}")
         return
@@ -369,7 +371,6 @@ def display_xai_visualization(original_image, attribution, title, method_type='h
         
         try:
             if method_type == 'heatmap':
-                # CAM methods - use jet colormap
                 overlay = visualizer.create_heatmap_overlay(
                     original_image, 
                     attribution, 
@@ -378,7 +379,6 @@ def display_xai_visualization(original_image, attribution, title, method_type='h
                 )
                 st.image(overlay, caption=f"{title} Overlay", use_container_width=True)
             else:
-                # Gradient methods - use hot colormap
                 overlay = visualizer.create_gradient_overlay(
                     original_image, 
                     attribution, 
@@ -386,7 +386,6 @@ def display_xai_visualization(original_image, attribution, title, method_type='h
                 )
                 st.image(overlay, caption=f"{title} Overlay", use_container_width=True)
             
-            # Show statistics
             st.markdown(f"""
             **Attribution Statistics:**
             - Min: {attribution.min():.4f}
@@ -401,7 +400,7 @@ def display_xai_visualization(original_image, attribution, title, method_type='h
 
 def main():
     st.markdown("""<div class="result-box" style="text-align: center; padding: 30px;">
-        <h1 class="title-text">Chest X-ray Classification</h1>
+        <h1 class="title-text"> Chest X-ray Classification</h1>
         <p style="color: #7f8c8d; font-size: 18px;">AI-powered medical image analysis with explainable AI</p>
     </div>""", unsafe_allow_html=True)
     
@@ -432,7 +431,7 @@ def main():
                 st.stop()
         
         st.markdown("""<div class="result-box">
-            <h3 class="title-text">Upload Chest X-ray Image</h3>
+            <h3 class="title-text">📤 Upload Chest X-ray Image</h3>
         </div>""", unsafe_allow_html=True)
         
         uploaded_file = st.file_uploader(
@@ -485,8 +484,7 @@ def main():
                     gradient_methods = [
                         "Saliency Map",
                         "Guided Backpropagation",
-                        "DeepLIFT",
-                        "Integrated Gradients"
+                        "DeepLIFT"
                     ]
                 
                 with col_method2:
